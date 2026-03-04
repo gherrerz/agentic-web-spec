@@ -9,6 +9,7 @@ import { getAgent, getNextAgent } from "@/lib/agents";
 import { ChatInterface } from "@/components/ChatInterface";
 import { ActionPanel } from "@/components/ActionPanel";
 import type { AgentAction } from "@/lib/agents";
+import type { WorkIQResult } from "@/components/WorkIQModal";
 import {
   createSession,
   addMessageToSession,
@@ -25,7 +26,7 @@ const AGENT_ICONS = {
 };
 
 export default function AgentPage({ params }: { params: { slug: string } }) {
-  const { activeRepo, pat } = useApp();
+  const { activeRepo, pat, featureFlags } = useApp();
   const router = useRouter();
   const agent = getAgent(params.slug);
   const nextAgent = getNextAgent(params.slug);
@@ -99,8 +100,28 @@ export default function AgentPage({ params }: { params: { slug: string } }) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [params.slug, activeRepo?.fullName]);
 
+  const handleWorkIQAttach = useCallback(
+    (items: WorkIQResult[]) => {
+      if (!session) return;
+
+      for (const item of items) {
+        const label = item.type ? `[${item.type}] ` : "";
+        const content = `📎 Work IQ Context:\n\n**${label}${item.title}**${item.date ? ` — ${item.date}` : ""}\n\n${item.summary}`;
+        const updated = addMessageToSession(session.id, {
+          role: "assistant",
+          content,
+        });
+        if (updated) {
+          setMessages([...updated.messages]);
+          sessionRef.current = updated;
+        }
+      }
+    },
+    [session]
+  );
+
   const handleSend = useCallback(
-    async (content: string, selectedSpaces: string[]) => {
+    async (content: string, selectedSpaces: string[], workiqItems?: WorkIQResult[]) => {
       if (!session || !activeRepo) return;
 
       // Add user message
@@ -120,15 +141,19 @@ export default function AgentPage({ params }: { params: { slug: string } }) {
         description: `${agent?.name}: "${content.slice(0, 60)}..."`,
       });
 
-      // Build context from previous messages, stripping the UI-only handoff prefix
+      // Build context from previous messages, stripping UI-only prefixes
       const HANDOFF_PREFIX = "📎 Context from previous agent:\n\n";
+      const WORKIQ_PREFIX = "📎 Work IQ Context:\n\n";
       const context = updated.messages
         .filter((m) => m.role === "assistant")
-        .map((m) =>
-          m.content.startsWith(HANDOFF_PREFIX)
-            ? m.content.slice(HANDOFF_PREFIX.length)
-            : m.content
-        )
+        .map((m) => {
+          if (m.content.startsWith(HANDOFF_PREFIX))
+            return m.content.slice(HANDOFF_PREFIX.length);
+          // Skip WorkIQ messages from context — they're sent via workiqContext
+          if (m.content.startsWith(WORKIQ_PREFIX)) return "";
+          return m.content;
+        })
+        .filter(Boolean)
         .join("\n\n");
 
       // Clean up session-resume and handoff keys now that context has been consumed
@@ -148,6 +173,11 @@ export default function AgentPage({ params }: { params: { slug: string } }) {
             repoPath: activeRepo.localPath,
             context: context || undefined,
             spaceRefs: selectedSpaces.length > 0 ? selectedSpaces : undefined,
+            workiqContext: workiqItems?.map((item) => ({
+              type: item.type,
+              title: item.title,
+              summary: item.summary,
+            })),
           }),
         });
 
@@ -249,6 +279,19 @@ export default function AgentPage({ params }: { params: { slug: string } }) {
     [session, activeRepo, params.slug, agent, pat]
   );
 
+  function handleCreatePRD() {
+    if (!activeRepo || !sessionRef.current) return;
+    const lastAssistant = [...sessionRef.current.messages]
+      .reverse()
+      .find((m) => m.role === "assistant" && !m.content.startsWith("📎"));
+    if (!lastAssistant) return;
+    setActionPanel({
+      title: "Create PRD on Repo",
+      agentSlug: "prd-writer",
+      prompt: `Create PRD document in the repository.\n\nRepository path: ${activeRepo.localPath}\nRepository: ${activeRepo.fullName}`,
+    });
+  }
+
   function handleCreateSpecs() {
     if (!activeRepo || !sessionRef.current) return;
     const lastAssistant = [...sessionRef.current.messages]
@@ -310,12 +353,17 @@ export default function AgentPage({ params }: { params: { slug: string } }) {
 
   const Icon = AGENT_ICONS[agent.slug as keyof typeof AGENT_ICONS] ?? FileText;
 
-  const agentActions: AgentAction[] | undefined = agent.slug === "technical-docs"
-    ? [
-        { label: "Create Docs on Repo", description: "Create a branch with spec files in the repo", icon: GitPullRequest, onClick: handleCreateSpecs },
-        { label: "Create GitHub Issues", description: "Create GitHub issues from the spec", icon: CircleDot, onClick: handleCreateIssues },
-      ]
-    : undefined;
+  const agentActions: AgentAction[] | undefined =
+    agent.slug === "prd"
+      ? [
+          ...(featureFlags.generatePrd ? [{ label: "Create PRD on Repo", description: "Create a branch with the PRD document in the repo", icon: GitPullRequest, onClick: handleCreatePRD }] : []),
+        ].filter(Boolean) as AgentAction[]
+      : agent.slug === "technical-docs"
+      ? [
+          ...(featureFlags.generateTechSpecs ? [{ label: "Create Docs on Repo", description: "Create a branch with spec files in the repo", icon: GitPullRequest, onClick: handleCreateSpecs }] : []),
+          ...(featureFlags.createGithubIssues ? [{ label: "Create GitHub Issues", description: "Create GitHub issues from the spec", icon: CircleDot, onClick: handleCreateIssues }] : []),
+        ]
+      : undefined;
 
   return (
     <div className="max-w-4xl mx-auto">
@@ -348,6 +396,7 @@ export default function AgentPage({ params }: { params: { slug: string } }) {
         agent={agent}
         messages={messages}
         onSend={handleSend}
+        onAddWorkIQMessage={handleWorkIQAttach}
         isStreaming={isStreaming}
         streamingContent={streamingContent}
         streamingReasoning={streamingReasoning}
