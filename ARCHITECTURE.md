@@ -8,6 +8,64 @@ This document describes the system architecture of **Web-Spec** — how the fron
 
 The system has three layers: a **browser-based frontend**, a **stateless backend**, and **GitHub's cloud services**. The backend bridges the frontend to the Copilot SDK and the local filesystem — it holds no persistent state of its own.
 
+## Layered Architecture (Technology View)
+
+This layered view maps the real technologies used in this repository to each architectural layer.
+
+```mermaid
+flowchart TB
+    User["User Browser"]
+
+    subgraph L1["Presentation Layer"]
+        FE["Next.js 14 App Router\nReact 18 + TypeScript 5\nTailwind CSS + Lucide React\nRoute Handler proxy for SSE"]
+        State["Client State\nReact Context + localStorage/sessionStorage"]
+    end
+
+    subgraph L2["Application/API Layer"]
+        API["Express 4 API (Node.js 18+, TypeScript ESM)\nRoutes: /api/agent, /api/repos, /api/kdb, /api/workiq, /api/admin"]
+        Stream["SSE Transport\nchunk, reasoning, done, error events"]
+    end
+
+    subgraph L3["Agent Orchestration Layer"]
+        SDK["@github/copilot-sdk\nCopilotClient + Session lifecycle"]
+        Config["YAML Agent Configs\nbackend/agents/*.agent.yaml\nmodel + tools + prompt"]
+        Tools["Tool Execution\ngrep, glob, view, bash\n(optional MCP permissions)"]
+    end
+
+    subgraph L4["Integration Layer"]
+        GH["GitHub Services\nREST API + Copilot API + MCP readonly endpoint"]
+        WQ["WorkIQ CLI/MCP\nMicrosoft 365 context search"]
+    end
+
+    subgraph L5["Workspace/Data Layer"]
+        Repo["Local Cloned Repository\n~/work/{user}/{repo}"]
+        NoDB["No Database\nState persisted only in browser storage"]
+    end
+
+    User --> FE
+    FE <--> State
+    FE --> API
+    API --> Stream
+    API --> SDK
+    SDK --> Config
+    SDK --> Tools
+    SDK --> GH
+    API --> WQ
+    Tools --> Repo
+    API --> Repo
+    State --> NoDB
+```
+
+### Layer Notes
+
+| Layer | Technologies in this project | Main responsibility |
+|---|---|---|
+| Presentation | Next.js 14, React 18, TypeScript, Tailwind CSS, Lucide React | UI rendering, navigation, user actions, SSE consumption |
+| Application/API | Express 4, Node.js 18+, TypeScript ESM | HTTP endpoints, validation, routing, streaming responses |
+| Agent Orchestration | `@github/copilot-sdk`, YAML agent configs | Session startup, model/tool config, prompt orchestration |
+| Integrations | GitHub REST/Copilot APIs, GitHub MCP, WorkIQ MCP | External data/services and tool-backed context |
+| Workspace/Data | Local filesystem (`~/work/...`), browser `localStorage`/`sessionStorage` | Cloned repo workspace and client-side persistence |
+
 ```mermaid
 flowchart TD
     Browser["🖥 Next.js Frontend\nlocalhost:3000\nPages · Components · React Context · localStorage"]
