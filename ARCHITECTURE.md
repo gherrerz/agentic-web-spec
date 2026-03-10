@@ -13,33 +13,34 @@ The system has three layers: a **browser-based frontend**, a **stateless backend
 This layered view maps the real technologies used in this repository to each architectural layer.
 
 ```mermaid
+%%{init: {'flowchart': {'nodeSpacing': 55, 'rankSpacing': 70, 'htmlLabels': true}}}%%
 flowchart TB
     User["User Browser"]
 
     subgraph L1["Presentation Layer"]
-        FE["Next.js 14 App Router\nReact 18 + TypeScript 5\nTailwind CSS + Lucide React\nRoute Handler proxy for SSE"]
-        State["Client State\nReact Context + localStorage/sessionStorage"]
+        FE["Next.js 14 App Router<br/>React 18 + TypeScript 5<br/>Tailwind CSS + Lucide React<br/>SSE Proxy Route Handler"]
+        State["Client State<br/>React Context<br/>localStorage + sessionStorage"]
     end
 
     subgraph L2["Application/API Layer"]
-        API["Express 4 API (Node.js 18+, TypeScript ESM)\nRoutes: /api/agent, /api/repos, /api/kdb, /api/workiq, /api/admin"]
-        Stream["SSE Transport\nchunk, reasoning, done, error events"]
+        API["Express 4 API<br/>Node.js 18+ + TypeScript ESM<br/>/api/agent · /api/repos<br/>/api/kdb · /api/workiq · /api/admin"]
+        Stream["SSE Transport<br/>chunk · reasoning · done · error"]
     end
 
     subgraph L3["Agent Orchestration Layer"]
-        SDK["@github/copilot-sdk\nCopilotClient + Session lifecycle"]
-        Config["YAML Agent Configs\nbackend/agents/*.agent.yaml\nmodel + tools + prompt"]
-        Tools["Tool Execution\ngrep, glob, view, bash\n(optional MCP permissions)"]
+        SDK["@github/copilot-sdk<br/>CopilotClient + Sessions"]
+        Config["YAML Agent Configs<br/>backend/agents/*.agent.yaml<br/>model + tools + prompt"]
+        Tools["Tool Execution<br/>grep · glob · view · bash<br/>optional MCP permissions"]
     end
 
     subgraph L4["Integration Layer"]
-        GH["GitHub Services\nREST API + Copilot API + MCP readonly endpoint"]
-        WQ["WorkIQ CLI/MCP\nMicrosoft 365 context search"]
+        GH["GitHub Services<br/>REST API + Copilot API<br/>MCP readonly endpoint"]
+        WQ["WorkIQ CLI/MCP<br/>Microsoft 365 context search"]
     end
 
     subgraph L5["Workspace/Data Layer"]
-        Repo["Local Cloned Repository\n~/work/{user}/{repo}"]
-        NoDB["No Database\nState persisted only in browser storage"]
+        Repo["Local Cloned Repository<br/>~/work/{user}/{repo}"]
+        NoDB["No Database<br/>State persisted in browser storage"]
     end
 
     User --> FE
@@ -67,17 +68,18 @@ flowchart TB
 | Workspace/Data | Local filesystem (`~/work/...`), browser `localStorage`/`sessionStorage` | Cloned repo workspace and client-side persistence |
 
 ```mermaid
+%%{init: {'flowchart': {'nodeSpacing': 55, 'rankSpacing': 70, 'htmlLabels': true}}}%%
 flowchart TD
-    Browser["🖥 Next.js Frontend\nlocalhost:3000\nPages · Components · React Context · localStorage"]
-    Backend["⚙️ Express Backend\nlocalhost:3001\nREST + SSE routes · Copilot SDK · YAML agent configs"]
-    Disk[("💾 Local Filesystem\n~/work/{user}/{repo}\nShallow-cloned repos + agent YAML files")]
-    GitHub["☁️ GitHub Services\nREST API · Copilot API · MCP Server · Git remotes"]
+    Browser["Next.js Frontend<br/>localhost:3000<br/>Pages + Components<br/>React Context + localStorage"]
+    Backend["Express Backend<br/>localhost:3001<br/>REST + SSE routes<br/>Copilot SDK + YAML configs"]
+    Disk[("Local Filesystem<br/>~/work/{user}/{repo}<br/>Shallow-cloned repos<br/>Agent YAML files")]
+    GitHub["GitHub Services<br/>REST API + Copilot API<br/>MCP Server + Git remotes"]
 
-    Browser -- "REST + SSE\n(PAT in Authorization header)" --> Backend
-    Browser -- "GitHub REST API\n(repo search, user info)" --> GitHub
+    Browser -- "REST + SSE<br/>PAT in Authorization header" --> Backend
+    Browser -- "GitHub REST API<br/>repo search + user info" --> GitHub
     Backend -- "git clone / file tree" --> Disk
-    Backend -- "Copilot SDK sessions\n(streaming + tool calls)" --> GitHub
-    GitHub -- "tool execution\n(grep · glob · view · bash)" --> Disk
+    Backend -- "Copilot SDK sessions<br/>streaming + tool calls" --> GitHub
+    GitHub -- "tool execution<br/>grep + glob + view + bash" --> Disk
 ```
 
 ### Frontend Internals
@@ -85,12 +87,13 @@ flowchart TD
 The Next.js 14 App Router frontend manages all user-facing state in React Context backed by `localStorage` — no server-side persistence.
 
 ```mermaid
+%%{init: {'flowchart': {'nodeSpacing': 50, 'rankSpacing': 65, 'htmlLabels': true}}}%%
 flowchart TD
     subgraph Browser["Browser — localhost:3000"]
-        Pages["Pages\n/ · /agents/[slug] · /dashboard · /kdb · /admin · /settings"]
-        Components["Components\nChatInterface · SpaceSelector · Nav\nRepoBar · PATModal · RepoSelectorModal\nActionPanel · WorkIQModal · SettingsDropdown"]
-        AppCtx["AppProvider — React Context\npat · username · activeRepo · featureFlags"]
-        LS[("localStorage\nsessions · activity\nPAT · username · activeRepo")]
+        Pages["Pages<br/>/ · /agents/[slug] · /dashboard<br/>/kdb · /admin · /settings"]
+        Components["Components<br/>ChatInterface · SpaceSelector · Nav<br/>RepoBar · PATModal · RepoSelectorModal<br/>ActionPanel · WorkIQModal · SettingsDropdown"]
+        AppCtx["AppProvider - React Context<br/>pat · username · activeRepo · featureFlags"]
+        LS[("localStorage<br/>sessions · activity<br/>PAT · username · activeRepo")]
     end
 
     Pages -- state reads/writes --> AppCtx
@@ -103,22 +106,23 @@ flowchart TD
 The Express backend exposes four route groups behind a single server. Agent execution uses the `@github/copilot-sdk` to create streaming sessions against cloned repos.
 
 ```mermaid
+%%{init: {'flowchart': {'nodeSpacing': 45, 'rankSpacing': 65, 'htmlLabels': true}}}%%
 flowchart TD
-    Express["Express Server\nsrc/index.ts"]
+    Express["Express Server<br/>src/index.ts"]
 
     subgraph Routes["Route Groups"]
-        ReposRoute["Repos API\nPOST /api/repos/clone\nGET  /api/repos/status\nGET  /api/repos/tree\nDELETE /api/repos/remove"]
-        AgentRoute["Agent API\nPOST /api/agent/run\n— SSE Streaming —"]
-        KdbRoute["KDB API\nGET /api/kdb/spaces\n— MCP via CopilotClient —"]
-        AdminRoute["Admin API\nGET /api/admin/agents\nGET /api/admin/agents/:slug\nPUT /api/admin/agents/:slug"]
-        WorkiqRoute["WorkIQ API\nPOST /api/workiq/search\nGET  /api/workiq/status\nPOST /api/workiq/detail\n— MCP via workiq CLI —"]
+        ReposRoute["Repos API<br/>POST /api/repos/clone<br/>GET /api/repos/status<br/>GET /api/repos/tree<br/>DELETE /api/repos/remove"]
+        AgentRoute["Agent API<br/>POST /api/agent/run<br/>SSE Streaming"]
+        KdbRoute["KDB API<br/>GET /api/kdb/spaces<br/>MCP via CopilotClient"]
+        AdminRoute["Admin API<br/>GET /api/admin/agents<br/>GET /api/admin/agents/:slug<br/>PUT /api/admin/agents/:slug"]
+        WorkiqRoute["WorkIQ API<br/>POST /api/workiq/search<br/>GET /api/workiq/status<br/>POST /api/workiq/detail<br/>MCP via workiq CLI"]
     end
 
-    YAMLLoader["YAML Agent Config Loader\nbackend/agents/*.agent.yaml"]
+    YAMLLoader["YAML Agent Config Loader<br/>backend/agents/*.agent.yaml"]
 
     subgraph CopilotSDK["@github/copilot-sdk"]
-        CopilotClient["CopilotClient\n{ cwd: repoPath }"]
-        Session["Session\nmodel · streaming: true\nsystemMessage + tools"]
+        CopilotClient["CopilotClient<br/>{ cwd: repoPath }"]
+        Session["Session<br/>model · streaming: true<br/>systemMessage + tools"]
     end
 
     Express --> Routes
@@ -132,12 +136,13 @@ flowchart TD
 The backend and frontend each communicate with GitHub services directly — the frontend for REST API calls (repo search, user info) and the backend for Copilot SDK sessions, git operations, and MCP-based Copilot Spaces access.
 
 ```mermaid
+%%{init: {'flowchart': {'nodeSpacing': 55, 'rankSpacing': 65, 'htmlLabels': true}}}%%
 flowchart LR
     subgraph GitHub["GitHub Services"]
-        GitHubAPI["GitHub REST API\nrepo search · user info"]
-        CopilotAPI["GitHub Copilot API\ngpt-4.1 model\ntool execution host"]
-        CopilotSpacesMCP["GitHub MCP Server\napi.githubcopilot.com/mcp/readonly\ncopilot_spaces toolset"]
-        GitRemote["github.com\ngit clone over HTTPS + PAT"]
+        GitHubAPI["GitHub REST API<br/>repo search · user info"]
+        CopilotAPI["GitHub Copilot API<br/>gpt-4.1 model<br/>tool execution host"]
+        CopilotSpacesMCP["GitHub MCP Server<br/>api.githubcopilot.com/mcp/readonly<br/>copilot_spaces toolset"]
+        GitRemote["github.com<br/>git clone over HTTPS + PAT"]
     end
 
     Browser["Frontend"] -- "PAT-authed requests" --> GitHubAPI
@@ -204,20 +209,21 @@ sequenceDiagram
 Agents are chained — the output of one session can be forwarded as `context` to the next agent's system prompt.
 
 ```mermaid
+%%{init: {'flowchart': {'nodeSpacing': 55, 'rankSpacing': 65, 'htmlLabels': true}}}%%
 flowchart LR
-    DR["Deep Research\ndeep-research.agent.yaml\nTools: grep · glob · view · bash"]
-    PRD["PRD Writer\nprd.agent.yaml\nTools: grep · glob · view"]
-    TD["Technical Docs\ntechnical-docs.agent.yaml\nTools: grep · glob · view · bash"]
-    SW["Spec Writer\nspec-writer.agent.yaml\nTools: bash"]
-    IC["Issue Creator\nissue-creator.agent.yaml\nTools: bash"]
+    DR["Deep Research<br/>deep-research.agent.yaml<br/>Tools: grep · glob · view · bash"]
+    PRD["PRD Writer<br/>prd.agent.yaml<br/>Tools: grep · glob · view"]
+    TD["Technical Docs<br/>technical-docs.agent.yaml<br/>Tools: grep · glob · view · bash"]
+    SW["Spec Writer<br/>spec-writer.agent.yaml<br/>Tools: bash"]
+    IC["Issue Creator<br/>issue-creator.agent.yaml<br/>Tools: bash"]
 
-    DR -- "Send to PRD\n(output as context)" --> PRD
-    PRD -- "Send to Technical Docs\n(output as context)" --> TD
-    TD -. "Create Docs on Repo\n(output as context)" .-> SW
-    TD -. "Create GitHub Issues\n(output as context)" .-> IC
-    TD -. "Create PRD on Repo\n(output as context)" .-> PW
+    DR -- "Send to PRD<br/>output as context" --> PRD
+    PRD -- "Send to Technical Docs<br/>output as context" --> TD
+    TD -. "Create Docs on Repo<br/>output as context" .-> SW
+    TD -. "Create GitHub Issues<br/>output as context" .-> IC
+    TD -. "Create PRD on Repo<br/>output as context" .-> PW
 
-    PW["PRD Writer\nprd-writer.agent.yaml\nTools: bash"]
+    PW["PRD Writer<br/>prd-writer.agent.yaml<br/>Tools: bash"]
 ```
 
 The three analysis agents (deep-research, prd, technical-docs) use model `o4-mini`. The three action agents (spec-writer, prd-writer, issue-creator) use model `gpt-4.1` and run with `cwd` set to the cloned repository. The action agents are triggered by post-action buttons on the Technical Docs page — they receive the tech-docs output as `context` and use `bash` to create branches/files, PRDs, or GitHub issues via `gh` CLI.
